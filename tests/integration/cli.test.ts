@@ -1,115 +1,46 @@
-// @vitest-environment node
-import {
-  type ChildProcess,
-  execFile,
-  execFileSync,
-  spawn,
-} from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
-import { type AddressInfo, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   formatUserCode,
   listTodosResponseSchema,
   todoResponseSchema,
 } from "ai-tutor-todo-api";
-import { betterAuth } from "better-auth";
-import { type TestHelpers, testUtils } from "better-auth/plugins";
-import { migrate } from "drizzle-orm/libsql/migrator";
-import { drizzle } from "drizzle-orm/libsql/node";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { authOptions } from "@/lib/auth-config";
 import { removeTempDir } from "@/tests/unit/temp-dir";
+import { type Harness, harness } from "./harness";
 
 /*
  * `ai-tutor` end to end: the CLI exactly as `npm install` builds it, against
- * the web app under `next dev` on a spare port, over a throwaway database, with
- * the token file redirected into a temp directory. Nobody opens a browser — a
- * session minted by Better Auth's test utils plays the signed-in user who
- * approves the code. The tests run in order and share that state.
+ * the web app tests/integration/server.ts runs, with the token file redirected
+ * into a temp directory. Nobody opens a browser — a session minted by Better
+ * Auth's test utils plays the signed-in user who approves the code. The tests
+ * run in order and share that state.
  */
 
-const root = resolve(import.meta.dirname, "..", "..");
-const cli = join(root, "cli", "dist", "index.js");
-const secret = "cli-integration-secret-at-least-32-chars";
 const email = "cli-user@example.com";
 
+let h: Harness;
 let dir: string;
 let configDir: string;
-let db: ReturnType<typeof drizzle>;
-let next: ChildProcess | undefined;
-let nextOutput = "";
-let server: string;
-let helpers: TestHelpers;
 let token: string;
 
 beforeAll(async () => {
-  execFileSync(process.execPath, ["build.mjs"], { cwd: join(root, "cli") });
-
+  h = await harness();
   dir = await mkdtemp(join(tmpdir(), "ai-tutor-cli-"));
   configDir = join(dir, "config");
-  const url = `file:${join(dir, "app.db")}`;
-  db = drizzle({ connection: { url } });
-  await migrate(db, { migrationsFolder: join(root, "drizzle") });
-
-  server = `http://localhost:${await sparePort()}`;
-  // The server's secret, so the session cookies these helpers sign pass there.
-  helpers = (
-    await betterAuth({
-      ...authOptions(db),
-      secret,
-      baseURL: server,
-      plugins: [testUtils()],
-    }).$context
-  ).test;
-
-  const child = spawn(
-    process.execPath,
-    [
-      join(root, "node_modules", "next", "dist", "bin", "next"),
-      "dev",
-      "--port",
-      new URL(server).port,
-    ],
-    {
-      cwd: root,
-      // Own dist dir (see next.config.ts), so neither `npm run dev` nor the
-      // Playwright server stands in the way. NODE_ENV replaces Vitest's
-      // `test`, which `next dev` warns about.
-      env: {
-        ...process.env,
-        NODE_ENV: "development",
-        NEXT_DIST_DIR: ".next-cli-e2e",
-        DATABASE_URL: url,
-        BETTER_AUTH_URL: server,
-        BETTER_AUTH_SECRET: secret,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      // Its own process group on POSIX, so stopServer can end the whole tree.
-      detached: process.platform !== "win32",
-    },
-  );
-  next = child;
-  child.stdout?.on("data", (chunk) => {
-    nextOutput += chunk;
-  });
-  child.stderr?.on("data", (chunk) => {
-    nextOutput += chunk;
-  });
-  await waitForServer();
-}, 240_000);
+});
 
 afterAll(async () => {
-  await stopServer();
-  db?.$client.close();
+  h?.db.$client.close();
   if (dir) {
     await removeTempDir(dir);
   }
-}, 60_000);
+});
 
 test("login prints a URL and a code, then stores a token once the code is approved", async () => {
-  const login = spawn(process.execPath, [cli, "login"], { env: cliEnv() });
+  const login = spawn(process.execPath, [h.cli, "login"], { env: cliEnv() });
   let stdout = "";
   let stderr = "";
   login.stdout.on("data", (chunk) => {
@@ -125,14 +56,14 @@ test("login prints a URL and a code, then stores a token once the code is approv
     () => `login printed no approval URL:\n${stdout}${stderr}`,
   );
   const userCode = new URL(approvalUrl).searchParams.get("user_code") ?? "";
-  expect(approvalUrl).toBe(`${server}/device?user_code=${userCode}`);
+  expect(approvalUrl).toBe(`${h.server}/device?user_code=${userCode}`);
   expect(stdout).toContain(formatUserCode(userCode));
 
-  const user = await helpers.saveUser(
-    helpers.createUser({ email, name: "Cli User" }),
+  const user = await h.helpers.saveUser(
+    h.helpers.createUser({ email, name: "Cli User" }),
   );
   const cookie =
-    (await helpers.getAuthHeaders({ userId: user.id })).get("cookie") ?? "";
+    (await h.helpers.getAuthHeaders({ userId: user.id })).get("cookie") ?? "";
 
   // Opening the printed URL while signed in binds the code to that session…
   const page = await fetch(approvalUrl, { headers: { cookie } });
@@ -140,15 +71,15 @@ test("login prints a URL and a code, then stores a token once the code is approv
   expect(await page.text()).toContain(formatUserCode(userCode));
 
   // …after which that session may approve it, as the page's button does.
-  const approval = await fetch(`${server}/api/auth/device/approve`, {
+  const approval = await fetch(`${h.server}/api/auth/device/approve`, {
     method: "POST",
-    headers: { cookie, origin: server, "content-type": "application/json" },
+    headers: { cookie, origin: h.server, "content-type": "application/json" },
     body: JSON.stringify({ userCode }),
   });
   expect(approval.status).toBe(200);
 
   expect(await status, stdout + stderr).toBe(0);
-  expect(stdout).toContain(`Logged in to ${server} as ${email}.`);
+  expect(stdout).toContain(`Logged in to ${h.server} as ${email}.`);
 
   token = (await storedToken()) ?? "";
   expect(token).not.toBe("");
@@ -209,7 +140,7 @@ test("logout revokes the token on the server and deletes it", async () => {
   expect(result.status, result.stderr).toBe(0);
   expect(await storedToken()).toBeUndefined();
 
-  const withOldToken = await fetch(`${server}/api/todos`, {
+  const withOldToken = await fetch(`${h.server}/api/todos`, {
     headers: { authorization: `Bearer ${token}` },
   });
   expect(withOldToken.status).toBe(401);
@@ -218,12 +149,12 @@ test("logout revokes the token on the server and deletes it", async () => {
 test("whoami fails once logged out", async () => {
   const result = await run("whoami");
   expect(result.status).toBe(4);
-  expect(result.stderr).toContain(`Not logged in to ${server}`);
+  expect(result.stderr).toContain(`Not logged in to ${h.server}`);
 }, 60_000);
 
 const cliEnv = () => ({
   ...process.env,
-  AI_TUTOR_URL: server,
+  AI_TUTOR_URL: h.server,
   AI_TUTOR_CONFIG_DIR: configDir,
 });
 
@@ -232,7 +163,7 @@ function run(...args: string[]) {
     (done, fail) => {
       execFile(
         process.execPath,
-        [cli, ...args],
+        [h.cli, ...args],
         { env: cliEnv() },
         (error, stdout, stderr) => {
           if (error && typeof error.code !== "number") {
@@ -251,7 +182,7 @@ async function storedToken(): Promise<string | undefined> {
     const hosts = JSON.parse(
       await readFile(join(configDir, "hosts.json"), "utf8"),
     );
-    return hosts[server]?.token;
+    return hosts[h.server]?.token;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return undefined;
@@ -281,50 +212,4 @@ async function until<T>(
     }
     await sleep(100);
   }
-}
-
-function sparePort() {
-  return new Promise<number>((done, fail) => {
-    const probe = createServer();
-    probe.on("error", fail);
-    probe.listen(0, () => {
-      const { port } = probe.address() as AddressInfo;
-      probe.close(() => done(port));
-    });
-  });
-}
-
-async function waitForServer() {
-  const deadline = Date.now() + 180_000;
-  while (Date.now() < deadline) {
-    if (next?.exitCode !== null) {
-      throw new Error(`next dev exited early:\n${nextOutput}`);
-    }
-    try {
-      if ((await fetch(`${server}/api/auth/ok`)).ok) {
-        return;
-      }
-    } catch {
-      // Not listening yet.
-    }
-    await sleep(500);
-  }
-  throw new Error(`next dev did not answer within 3 minutes:\n${nextOutput}`);
-}
-
-async function stopServer() {
-  const child = next;
-  if (!child?.pid || child.exitCode !== null) {
-    return;
-  }
-  const exited = new Promise((done) => child.once("exit", done));
-  // `next dev` serves from a child process of its own, so end the whole tree.
-  if (process.platform === "win32") {
-    execFileSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-      stdio: "ignore",
-    });
-  } else {
-    process.kill(-child.pid, "SIGTERM");
-  }
-  await exited;
 }

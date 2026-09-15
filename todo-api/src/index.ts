@@ -22,9 +22,20 @@ export const todoSchema = z.object({
 });
 export type Todo = z.infer<typeof todoSchema>;
 
+/** `PATCH /api/todos/:id` — the path parameter, as `todoPath` encodes it. */
+export const todoParamsSchema = z.object({
+  id: z.string().min(1).describe("The item's id, as a list or add returned it"),
+});
+export type TodoParams = z.infer<typeof todoParamsSchema>;
+
 /** `GET /api/todos?q=milk` — `q` keeps items whose title contains it, ignoring case. */
 export const listTodosQuerySchema = z.object({
-  q: z.string().optional(),
+  q: z
+    .string()
+    .optional()
+    .describe(
+      "Only items whose title contains this text, ignoring case; omit for every item",
+    ),
 });
 export type ListTodosQuery = z.infer<typeof listTodosQuerySchema>;
 
@@ -36,7 +47,7 @@ export type ListTodosResponse = z.infer<typeof listTodosResponseSchema>;
 
 /** Body of `POST /api/todos`; the title is trimmed before it is checked. */
 export const createTodoRequestSchema = z.object({
-  title: z.string().trim().min(1),
+  title: z.string().trim().min(1).describe("The item's title"),
 });
 export type CreateTodoRequest = z.input<typeof createTodoRequestSchema>;
 

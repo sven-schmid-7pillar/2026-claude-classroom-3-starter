@@ -3,13 +3,14 @@ import { Command } from "commander";
 import pkg from "../package.json" with { type: "json" };
 import {
   configDir,
-  credentialsFor,
   DEFAULT_SERVER,
   deleteCredentials,
   saveCredentials,
   serverUrl,
+  session,
 } from "./config";
-import { CliError, notLoggedIn, tokenRejected } from "./errors";
+import { CliError, tokenRejected } from "./errors";
+import { serveStdio } from "./mcp";
 import { deviceLogin, revokeToken, tokenUser } from "./session";
 import { addTodo, completeTodo, formatTodo, listTodos } from "./todos";
 
@@ -17,16 +18,6 @@ const print = (line = "") => {
   process.stdout.write(`${line}\n`);
 };
 const printJson = (value: unknown) => print(JSON.stringify(value, null, 2));
-
-/** The configured server and its stored token, or the exit-4 error to log in. */
-async function session() {
-  const server = serverUrl();
-  const credentials = await credentialsFor(server);
-  if (!credentials) {
-    throw notLoggedIn(server);
-  }
-  return { server, ...credentials };
-}
 
 /** Help shows the values in effect, so a reader need not work them out. */
 function currently(read: () => string) {
@@ -233,6 +224,38 @@ is not on your list exits with status 1.`,
       print(formatTodo(todo));
     }
   });
+
+program
+  .command("mcp")
+  .description(
+    "serve add, list and done as tools to an MCP client such as Claude Code",
+  )
+  .requiredOption(
+    "--stdio",
+    "speak the Model Context Protocol on stdin and stdout (the only transport)",
+  )
+  .addHelpText(
+    "after",
+    `
+Starts a Model Context Protocol server for an MCP client to spawn; it runs
+until the client closes stdin. stdout carries protocol messages only, and
+nothing is logged. To register it with Claude Code, from any directory:
+  $ claude mcp add --transport stdio ai-tutor -- node <this repo>/cli/dist/index.js mcp --stdio
+then check it with: claude mcp list
+
+Tools (input schemas come from the API contract; each result is the API's
+response body, as structured content and as JSON text):
+  list_todos     {"q"?: string}     -> {"todos": [{"id", "title", "done"}]}
+  add_todo       {"title": string}  -> {"todo": {"id", "title", "done"}}
+  complete_todo  {"id": string}     -> {"todo": {"id", "title", "done"}}
+
+Every call reads the token stored for AI_TUTOR_URL at that moment, so the
+server starts without a login and needs no restart after one. Until
+ai-tutor login has run, and after ai-tutor logout, each call returns an error
+result saying to run ai-tutor login; the other failures of add, list and done
+come back the same way, with the same messages.`,
+  )
+  .action(() => serveStdio());
 
 program.parseAsync().catch((error: unknown) => {
   if (error instanceof CliError) {

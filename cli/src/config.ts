@@ -9,7 +9,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { CliError } from "./errors";
+import { CliError, notLoggedIn } from "./errors";
 
 export const DEFAULT_SERVER = "http://localhost:3000";
 
@@ -98,6 +98,16 @@ export async function credentialsFor(
   server: string,
 ): Promise<Credentials | undefined> {
   return (await readHosts())[server];
+}
+
+/** The configured server and its stored token, or the exit-4 error to log in. */
+export async function session() {
+  const server = serverUrl();
+  const credentials = await credentialsFor(server);
+  if (!credentials) {
+    throw notLoggedIn(server);
+  }
+  return { server, ...credentials };
 }
 
 export async function saveCredentials(

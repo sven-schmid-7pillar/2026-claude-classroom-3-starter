@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Todo Manager
 
-AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra agent served to a CopilotKit chat over AG-UI, behind Better Auth email/password sign-in, over a Drizzle/SQLite persistence layer, with a Bearer-token REST API for the same todos, an `ai-tutor` command-line client for that API, and a Vitest + Playwright test harness.
+AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra agent served to a CopilotKit chat over AG-UI, behind Better Auth email/password sign-in, over a Drizzle/SQLite persistence layer, with a Bearer-token REST API for the same todos, an `ai-tutor` command-line client and MCP server for that API, and a Vitest + Playwright test harness.
 
 ## Commands
 
@@ -18,7 +18,7 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - `npm run dev` / `npm run build` / `npm run start`.
 - If a build reports stale generated route types while `tsc --noEmit --incremental false` passes, remove `.next/cache/.tsbuildinfo` before rebuilding.
 - `npm run lint` is `biome check` and `npm run format` is `biome format --write` — Biome only, so never add ESLint or Prettier config.
-- `npm test` (Vitest, single run, including the CLI integration test), `npm run test:watch`, `npm run test:e2e` (Playwright), `npm run test:e2e:llm` (the one spec that spends OpenRouter credit).
+- `npm test` (Vitest, single run, including the CLI and MCP integration tests; `--project unit` skips them), `npm run test:watch`, `npm run test:e2e` (Playwright), `npm run test:e2e:llm` (the one spec that spends OpenRouter credit).
 - `npm run db:generate` writes a migration from the schema and `npm run db:migrate` applies it to `DATABASE_URL`.
 - `npm run auth:generate` regenerates `lib/auth-schema.ts` from the Better Auth config; follow it with `db:generate` + `db:migrate`.
 - The root is an npm workspace root over `todo-api/` (`ai-tutor-todo-api`) and `cli/` (`ai-tutor-cli`); `npm install` runs the CLI's `prepare` build, so `npx ai-tutor --help` works from the root, and `npm run build -w ai-tutor-cli` rebuilds it after editing `cli/src/`.
@@ -75,6 +75,10 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - API shapes come from `ai-tutor-todo-api`, and login, whoami and logout go through Better Auth's own client with `deviceAuthorizationClient()`, so the CLI declares no wire shapes of its own.
 - Tokens live in `hosts.json`, keyed by server URL, under `AI_TUTOR_CONFIG_DIR`, else `$XDG_CONFIG_HOME/ai-tutor`, else `%APPDATA%\ai-tutor` on Windows, else `~/.config/ai-tutor`, written 0600 through a temp file and rename.
 - `AI_TUTOR_URL` overrides the default server `http://localhost:3000`, and exit status 4 (as in gh) means there is no usable token while 1 covers every other failure.
+- `ai-tutor mcp --stdio` (`cli/src/mcp.ts`) serves `list_todos`, `add_todo` and `complete_todo` to MCP clients, with the contract's zod objects as each tool's `inputSchema` and `outputSchema`, and `docs/mcp.md` covers registering it with Claude Code.
+- Its SDK is the v2 `@modelcontextprotocol/server` (the test uses `@modelcontextprotocol/client`); the v1 `@modelcontextprotocol/sdk` that CopilotKit pulls in also resolves but is not a dependency of either.
+- Each tool call reads the token through `session()` in `cli/src/config.ts` and simply throws, because the SDK turns a thrown error into an `isError` result carrying its message, so the server starts without a login and needs no restart after one.
+- stdout is the protocol channel in that mode, so `serveStdio` points `console.log`, `info` and `debug` at stderr and nothing on that path may write to stdout.
 
 ## Agent — `lib/tutor.ts`, `components/chat.tsx`, `app/api/copilotkit/[...all]/`
 
@@ -97,16 +101,19 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 
 ## Tests — `tests/unit`, `tests/integration` (Vitest), `tests/e2e` (Playwright)
 
-- Vitest is jsdom + Testing Library and only picks up `tests/unit/**/*.test.{ts,tsx}` and `tests/integration/**/*.test.ts`; async Server Components are unsupported there, so cover those with e2e instead.
+- `vitest.config.mts` defines two projects, `unit` (jsdom + Testing Library over `tests/unit/**/*.test.{ts,tsx}`) and `integration` (node over `tests/integration/**/*.test.ts`); async Server Components are unsupported there, so cover those with e2e instead.
 - `vitest.config.mts` resolves `@/*` through Vite's native `resolve.tsconfigPaths`, so no `vite-tsconfig-paths` plugin is needed.
 - Playwright runs Chromium only against its own `next dev` on port 3100 (override with `E2E_PORT`).
-- `next dev` refuses to start twice against one dist dir, so `next.config.ts` reads `NEXT_DIST_DIR`, which the Playwright server sets to `.next-e2e` and the CLI integration test to `.next-cli-e2e`; each dir also needs a `tsconfig.json` include entry, which `next dev` adds itself.
+- `next dev` refuses to start twice against one dist dir, so `next.config.ts` reads `NEXT_DIST_DIR`, which the Playwright server sets to `.next-e2e` and the integration setup to `.next-cli-e2e`; each dir also needs a `tsconfig.json` include entry, which `next dev` adds itself.
 - The seven `.test.ts` files in `tests/unit` select the node environment, while `todo-tool-calls.test.tsx` uses jsdom; the db, auth, tutor and todos-api tests point at a temp file, so they never touch `data/app.db`.
 - On Windows libSQL keeps a closed database file locked for seconds, so those tests delete their temp dir with the retrying `removeTempDir` from `tests/unit/temp-dir.ts` and `vitest.config.mts` raises `hookTimeout` to cover the wait.
 - The auth test builds its own instance from `authOptions` with the `testUtils()` plugin and an explicit `secret`/`baseURL`, because Vitest does not load `.env`.
 - `tests/unit/todos-api.test.ts` calls the real route handlers with `DATABASE_URL` and `BETTER_AUTH_SECRET` stubbed and only `server-only` mocked, minting sessions on a second `testUtils()` instance with the same secret and taking the signed token out of `login().headers`.
-- `tests/integration/cli.test.ts` builds the CLI, starts `next dev` on a spare port over a migrated temp database with its own `BETTER_AUTH_*`, and runs `login` through `logout` with `AI_TUTOR_CONFIG_DIR` in the temp dir, approving the code with a `testUtils()` session cookie instead of a browser.
-- That test ends `next dev` with `taskkill /t` on Windows and a process-group signal elsewhere, because the server runs in a child process that would otherwise outlive it and keep the database file locked.
+- `tests/integration/server.ts` is the integration project's `globalSetup`, which Vitest runs only when an integration file is selected: it builds the CLI, starts one `next dev` on a spare port over a migrated temp database with its own `BETTER_AUTH_*`, and hands the URL, database, secret and CLI path to the files through `provide`/`inject`.
+- The integration files run in parallel against that one server, so each signs in a user of its own through `harness()` in `tests/integration/harness.ts`, a `testUtils()` instance on the server's database and secret.
+- `cli.test.ts` runs `login` through `logout` with `AI_TUTOR_CONFIG_DIR` in a temp dir, approving the code with a `testUtils()` session cookie instead of a browser.
+- `mcp.test.ts` spawns `ai-tutor mcp --stdio` through `@modelcontextprotocol/client`, calls every tool before and after writing a signed token into `hosts.json`, and fails on any stdout line that is not JSON-RPC.
+- The setup ends `next dev` with `taskkill /t` on Windows and a process-group signal elsewhere, because the server runs in a child process that would otherwise outlive it and keep the database file locked.
 - `tests/e2e/auth.spec.ts` does hit `data/app.db`, so it signs up a `Date.now()`-stamped email; `playwright.config.ts` also overrides `BETTER_AUTH_URL` onto its own port.
 - `tests/unit/copilotkit-route.test.ts` mocks `@/lib/auth`, `@/lib/tutor`, and both CopilotKit/AG-UI modules, so it covers the 401 gate and the `resourceId`/`requestContext` wiring without a model call.
 - `tests/unit/todo-tools.test.ts` runs the real executors against a migrated temp database; `createTool` types `execute` as optional and unions in a validation error, so its `run` helper casts once rather than at every call.
