@@ -2,7 +2,7 @@
   "name": "ai-tutor-todo-api",
   "version": "0.1.0",
   "private": true,
-  "description": "Zod wire contract of the ai-tutor /api/todos REST API, shared by the web app and ai-tutor-cli",
+  "description": "Zod wire contract of the ai-tutor /api/todos REST API and MCP tools, shared by the web app and ai-tutor-cli",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

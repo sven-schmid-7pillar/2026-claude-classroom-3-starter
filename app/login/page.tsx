@@ -8,11 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { FormError } from "@/components/ui/form-error";
 import { authClient } from "@/lib/auth-client";
-import { safeNextPath, withNext } from "@/lib/next-path";
+import { oauthQuery, safeNextPath, withNext } from "@/lib/next-path";
 
 export default function LoginPage({ searchParams }: PageProps<"/login">) {
+  const params = use(searchParams);
   // Set by /device, so a terminal login survives signing in first.
-  const next = safeNextPath(use(searchParams).next);
+  const next = safeNextPath(params.next);
+  // Set by Better Auth when an MCP client's authorization needs a sign-in.
+  const oauth = oauthQuery(params);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -23,7 +26,7 @@ export default function LoginPage({ searchParams }: PageProps<"/login">) {
     setError(null);
     setPending(true);
 
-    const { error: signInError } = await authClient.signIn.email({
+    const { data, error: signInError } = await authClient.signIn.email({
       email: String(form.get("email")),
       password: String(form.get("password")),
     });
@@ -34,6 +37,11 @@ export default function LoginPage({ searchParams }: PageProps<"/login">) {
           "That email and password don't match an account.",
       );
       setPending(false);
+      return;
+    }
+    // Resuming an authorization, Better Auth answered with /consent or the
+    // client's callback, and its client is already navigating there.
+    if (data && "redirect" in data && data.redirect) {
       return;
     }
 
@@ -49,7 +57,7 @@ export default function LoginPage({ searchParams }: PageProps<"/login">) {
         <>
           Need an account?{" "}
           <Link
-            href={withNext("/signup", next)}
+            href={oauth ? `/signup${oauth}` : withNext("/signup", next)}
             className="font-semibold text-accent hover:underline"
           >
             Sign up

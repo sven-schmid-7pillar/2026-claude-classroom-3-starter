@@ -5,6 +5,9 @@ import { bearer } from "better-auth/plugins";
 import {
   authOptions,
   cliDeviceAuthorization,
+  mcpAuthorization,
+  mcpClientMetadata,
+  mcpTokenSigning,
   signedDeviceToken,
 } from "@/lib/auth-config";
 import { db } from "@/lib/db";
@@ -19,6 +22,11 @@ export const auth = betterAuth({
     // `ai-tutor login`, whose token signedDeviceToken signs for bearer above.
     cliDeviceAuthorization(),
     signedDeviceToken(),
+    // OAuth for /api/mcp: the signing keys, the authorization server, and
+    // clients identified by metadata document URLs.
+    mcpTokenSigning(),
+    mcpAuthorization(),
+    mcpClientMetadata(),
     // nextCookies mirrors Set-Cookie into next/headers, so it must stay last.
     nextCookies(),
   ],

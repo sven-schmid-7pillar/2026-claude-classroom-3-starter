@@ -3,11 +3,7 @@
     "ai-tutor": {
       "type": "stdio",
       "command": "npx",
-      "args": [
-        "ai-tutor",
-        "mcp",
-        "--stdio"
-      ],
+      "args": ["ai-tutor", "mcp", "--stdio"],
       "env": {}
     }
   }

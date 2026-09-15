@@ -253,7 +253,12 @@ Every call reads the token stored for AI_TUTOR_URL at that moment, so the
 server starts without a login and needs no restart after one. Until
 ai-tutor login has run, and after ai-tutor logout, each call returns an error
 result saying to run ai-tutor login; the other failures of add, list and done
-come back the same way, with the same messages.`,
+come back the same way, with the same messages.
+
+The web app serves the same tools itself at <server>/api/mcp over Streamable
+HTTP, with OAuth instead of ai-tutor login, for clients that connect by URL:
+  $ claude mcp add --transport http ai-tutor-web http://localhost:3000/api/mcp
+then log in with: claude mcp login ai-tutor-web`,
   )
   .action(() => serveStdio());
 

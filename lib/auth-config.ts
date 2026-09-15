@@ -1,9 +1,12 @@
+import { cimd } from "@better-auth/cimd";
+import { fetchClientMetadataResource } from "@better-auth/cimd/node";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { CLI_CLIENT_ID } from "ai-tutor-todo-api";
+import { mcp } from "@better-auth/mcp";
+import { CLI_CLIENT_ID, MCP_PATH } from "ai-tutor-todo-api";
 import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { makeSignature } from "better-auth/crypto";
-import { deviceAuthorization } from "better-auth/plugins";
+import { deviceAuthorization, jwt } from "better-auth/plugins";
 import * as schema from "@/lib/schema";
 
 type DrizzleDb = Parameters<typeof drizzleAdapter>[0];
@@ -18,6 +21,8 @@ export function authOptions(db: DrizzleDb) {
   return {
     database: drizzleAdapter(db, { provider: "sqlite", schema }),
     emailAndPassword: { enabled: true },
+    // The JWT plugin's /token signs session JWTs, which nothing here accepts.
+    disabledPaths: ["/token"],
   } satisfies BetterAuthOptions;
 }
 
@@ -67,3 +72,43 @@ export const signedDeviceToken = () =>
       ],
     },
   }) satisfies BetterAuthPlugin;
+
+/** The scope /api/mcp requires of an access token. */
+export const MCP_SCOPE = "todos";
+
+/**
+ * The canonical URL of /api/mcp: the RFC 8707 `resource` an MCP client asks a
+ * token for, the audience that token carries, and the RFC 9728 metadata's
+ * `resource`. It lives on BETTER_AUTH_URL's origin, like every auth URL.
+ */
+export function mcpResource(baseURL = process.env.BETTER_AUTH_URL) {
+  if (!baseURL) {
+    throw new Error("BETTER_AUTH_URL must be set to derive the MCP resource");
+  }
+  return new URL(MCP_PATH, baseURL).href;
+}
+
+/** Signs the access tokens /api/mcp verifies against /api/auth/jwks. */
+export const mcpTokenSigning = () => jwt({ disableSettingJwtHeader: true });
+
+/**
+ * The OAuth 2.1 authorization server for /api/mcp, which signs people in on
+ * /login and asks them on /consent. Only grants made by a signed-in user are
+ * enabled, so every access token's subject is a user id.
+ */
+export const mcpAuthorization = (baseURL?: string) =>
+  mcp({
+    loginPage: "/login",
+    consentPage: "/consent",
+    resource: mcpResource(baseURL),
+    scopes: [MCP_SCOPE, "offline_access"],
+    grantTypes: ["authorization_code", "refresh_token"],
+  });
+
+/**
+ * Client ID Metadata Documents: a client such as Claude Code identifies itself
+ * by the HTTPS URL of a JSON document it hosts, so it needs no registration.
+ * The Node transport refuses private addresses and redirects.
+ */
+export const mcpClientMetadata = () =>
+  cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" });

@@ -1,9 +1,10 @@
 import { z } from "zod";
 
 /**
- * The wire contract of the /api/todos REST API, for the web app's route
- * handlers and for ai-tutor-cli. Imports nothing but zod, so a client can load
- * it without pulling in the database or the auth instance.
+ * The wire contract of the /api/todos REST API and of the ai-tutor MCP tools,
+ * for the web app's route handlers and for ai-tutor-cli. Imports nothing but
+ * zod, so a client can load it without pulling in the database, the auth
+ * instance or an MCP SDK.
  *
  * Every call sends `Authorization: Bearer <token>`, where the token is a signed
  * session token: the one Better Auth returns in the `set-auth-token` header on
@@ -74,6 +75,61 @@ export const errorResponseSchema = z.object({
     .optional(),
 });
 export type ErrorResponse = z.infer<typeof errorResponseSchema>;
+
+/**
+ * Where the web app serves the MCP tools below over Streamable HTTP, behind
+ * OAuth; `ai-tutor mcp --stdio` serves the same tools on stdin and stdout.
+ */
+export const MCP_PATH = "/api/mcp";
+
+/**
+ * The MCP tools, keyed by name, exactly as both servers register them: the
+ * stdio server calls the REST API, the web app queries the database. Each
+ * returns the matching REST response body through `toolResult`, so a client
+ * sees the same tools whichever server it talks to.
+ */
+export const todoTools = {
+  list_todos: {
+    title: "List to-dos",
+    description:
+      "List the items on the user's ai-tutor to-do list, oldest first, each with its id, title and done flag. Pass q to keep only titles containing that text.",
+    inputSchema: listTodosQuerySchema,
+    outputSchema: listTodosResponseSchema,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  add_todo: {
+    title: "Add a to-do",
+    description:
+      "Add an item to the user's ai-tutor to-do list and return it with its new id.",
+    inputSchema: createTodoRequestSchema,
+    outputSchema: todoResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  complete_todo: {
+    title: "Mark a to-do done",
+    description:
+      "Mark an item on the user's ai-tutor to-do list done, by the id list_todos or add_todo returned, and return it. An item already done stays done.",
+    inputSchema: todoParamsSchema,
+    outputSchema: todoResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+};
+
+/** A tool's result: the response body as structured content and as JSON text. */
+export const toolResult = <T extends Record<string, unknown>>(value: T) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(value) }],
+  structuredContent: value,
+});
 
 /**
  * The `client_id` `ai-tutor login` sends through Better Auth's device

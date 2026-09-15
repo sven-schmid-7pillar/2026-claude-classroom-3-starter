@@ -36,6 +36,13 @@
       "when": 1789461927859,
       "tag": "0004_hot_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789467000917,
+      "tag": "0005_spooky_james_howlett",
+      "breakpoints": true
     }
   ]
 }

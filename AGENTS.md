@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Todo Manager
 
-AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra agent served to a CopilotKit chat over AG-UI, behind Better Auth email/password sign-in, over a Drizzle/SQLite persistence layer, with a Bearer-token REST API for the same todos, an `ai-tutor` command-line client and MCP server for that API, and a Vitest + Playwright test harness.
+AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra agent served to a CopilotKit chat over AG-UI, behind Better Auth email/password sign-in, over a Drizzle/SQLite persistence layer, with a Bearer-token REST API for the same todos, an `ai-tutor` command-line client and stdio MCP server for that API, the same MCP tools served by the app over Streamable HTTP behind OAuth, and a Vitest + Playwright test harness.
 
 ## Commands
 
@@ -39,6 +39,8 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - `lib/tool-result.ts` decodes the JSON text AG-UI puts on a tool result; it stays out of the component because importing `@copilotkit/react-core/v2` in a Vitest file fails on that package's CSS side effect.
 - `/device` is where `ai-tutor login` codes are approved: rendering it with `?user_code=` calls `auth.api.deviceVerify`, which binds the code to the session, and only then may `components/device-approval.tsx` approve or deny it.
 - `/login` and `/signup` send the user on to `?next=` (how `/device` survives signing in first), filtered through `safeNextPath` in `lib/next-path.ts` so it cannot become an open redirect.
+- When Better Auth sends an MCP client's authorization to `/login`, its signed query (`oauthQuery`) rides the link to `/signup`, `oauthProviderClient()` posts it with the form, and both pages stop at a `redirect: true` answer, which the auth client follows to `/consent` or the client's callback.
+- `/consent` names the requesting client (`auth.api.getOAuthClientPublic`) and its scopes, and `components/consent-approval.tsx` answers through `authClient.oauth2.consent`, whose redirect the auth client follows too.
 
 ## Persistence — `lib/db.ts`, `lib/schema.ts`, `lib/auth-schema.ts`, `drizzle.config.ts`, `drizzle/`
 
@@ -52,7 +54,8 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 ## Auth — `lib/auth.ts`, `lib/auth-config.ts`, `lib/auth-client.ts`, `app/api/auth/[...all]/`
 
 - `lib/auth-config.ts` exports `authOptions(db)`, which every entry point that needs plugins spreads with its own literal `plugins` array to preserve inference of plugin helpers such as `ctx.test`.
-- `lib/auth.ts` is the app instance (explicitly `server-only`, `bearer()` for the REST API, `cliDeviceAuthorization()` and `signedDeviceToken()` for `ai-tutor login`, `nextCookies()` last); `lib/auth-cli.ts` exists only because the Better Auth CLI refuses to load a module graph containing `server-only`, and must list every plugin that brings a table.
+- `lib/auth.ts` is the app instance (explicitly `server-only`, `bearer()` for the REST API, `cliDeviceAuthorization()` and `signedDeviceToken()` for `ai-tutor login`, `mcpTokenSigning()`, `mcpAuthorization()` and `mcpClientMetadata()` for `/api/mcp`, `nextCookies()` last); `lib/auth-cli.ts` exists only because the Better Auth CLI refuses to load a module graph containing `server-only`, and must list every plugin that brings a table.
+- `lib/auth-cli.ts` lists the bare `oauthProvider()` in place of `mcpAuthorization()`, because `mcp()` seeds its `oauth_resource` row at startup and, on the CLI's empty database, Drizzle wraps the missing-table error so the seeder rethrows it.
 - Gate pages server-side with `auth.api.getSession({ headers: await headers() })` and `redirect()`; there is deliberately no `proxy.ts`, whose cookie check would not validate anything.
 - Browser sign-in is email/password only: when an auth change changes the schema, regenerate it and generate and apply the migration.
 - The device grant accepts only `CLI_CLIENT_ID` and returns the raw session token, which `requireSignature` refuses, so `signedDeviceToken` rewrites `/device/token`'s `access_token` to the cookie's signed form in an after hook.
@@ -64,7 +67,7 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - That workspace ships TypeScript source (`exports` points at `src/index.ts`), which Turbopack and Vitest compile directly and the CLI bundle inlines, so it has no build step and needs no `transpilePackages` entry.
 - The token is a signed session token, from the `set-auth-token` header on sign-in or from `ai-tutor login`'s device grant, so signing out or revoking that session revokes it and no extra token table exists.
 - `requireSignature` makes the bearer plugin ignore the raw `session.token` value (which is also what test-utils' `login().token` returns), so a leaked database row is not a credential.
-- The JWT plugin does not fit because its tokens are for other services to verify against JWKS rather than for `getSession`, and API keys need the separate `@better-auth/api-key` package, its own table and an `x-api-key` header.
+- JWTs do not fit this API because they are for services that verify against JWKS rather than for `getSession` (the `jwt()` plugin only signs `/api/mcp`'s access tokens), and API keys need the separate `@better-auth/api-key` package, its own table and an `x-api-key` header.
 - The bearer plugin silently falls back to the session cookie when a token fails verification, so `getApiSession` passes writes only the Authorization header and lets the cookie through on `GET` alone.
 - The handlers read `request.headers` rather than `headers()` so tests can call them directly.
 
@@ -75,10 +78,21 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - API shapes come from `ai-tutor-todo-api`, and login, whoami and logout go through Better Auth's own client with `deviceAuthorizationClient()`, so the CLI declares no wire shapes of its own.
 - Tokens live in `hosts.json`, keyed by server URL, under `AI_TUTOR_CONFIG_DIR`, else `$XDG_CONFIG_HOME/ai-tutor`, else `%APPDATA%\ai-tutor` on Windows, else `~/.config/ai-tutor`, written 0600 through a temp file and rename.
 - `AI_TUTOR_URL` overrides the default server `http://localhost:3000`, and exit status 4 (as in gh) means there is no usable token while 1 covers every other failure.
-- `ai-tutor mcp --stdio` (`cli/src/mcp.ts`) serves `list_todos`, `add_todo` and `complete_todo` to MCP clients, with the contract's zod objects as each tool's `inputSchema` and `outputSchema`, and `docs/mcp.md` covers registering it with Claude Code.
+- `ai-tutor mcp --stdio` (`cli/src/mcp.ts`) serves `list_todos`, `add_todo` and `complete_todo` to MCP clients by registering the contract's `todoTools` (names, descriptions, schemas, annotations), as the web app's `/api/mcp` does, and `docs/mcp.md` covers registering either with Claude Code.
 - Its SDK is the v2 `@modelcontextprotocol/server` (the test uses `@modelcontextprotocol/client`); the v1 `@modelcontextprotocol/sdk` that CopilotKit pulls in also resolves but is not a dependency of either.
 - Each tool call reads the token through `session()` in `cli/src/config.ts` and simply throws, because the SDK turns a thrown error into an `isError` result carrying its message, so the server starts without a login and needs no restart after one.
 - stdout is the protocol channel in that mode, so `serveStdio` points `console.log`, `info` and `debug` at stderr and nothing on that path may write to stdout.
+
+## MCP over HTTP — `app/api/mcp/`, `app/.well-known/`, `lib/todo-mcp.ts`
+
+- `POST /api/mcp` is the v2 SDK's `createMcpHandler` (its stateless fallback for 2025-era clients left on) behind `@better-auth/mcp`'s `requireMcpAuth`, which answers a missing or invalid token with 401 and the RFC 9728 `WWW-Authenticate` challenge.
+- It accepts only a JWT access token signed with the `jwt()` plugin's keys (fetched from `/api/auth/jwks`), with the audience `mcpResource()` — `BETTER_AUTH_URL` plus the contract's `MCP_PATH` — and the `todos` scope.
+- The user id is the token's `sub`, handed to the server factory as `authInfo.extra.userId`; `mcpAuthorization()` enables only the authorization-code and refresh grants and sets no `pairwiseSecret`, so `sub` is always a user id.
+- `lib/todo-mcp.ts` registers the contract's `todoTools` over `lib/todo-tools.ts`, the same definitions `cli/src/mcp.ts` registers over the REST API.
+- The discovery documents sit at the site root (`/.well-known/oauth-protected-resource/api/mcp`, `/.well-known/oauth-authorization-server/api/auth`), so `app/.well-known/[...path]/route.ts` hands them to `auth.handler`, whose plugins answer them in `onRequest` before routing by base path.
+- Clients identify themselves with Client ID Metadata Documents (`cimd()` with the Node transport and `metadataProfile: "mcp-2026-07-28"`), so the server needs outbound HTTPS, and Dynamic Client Registration stays off.
+- Access tokens and session tokens do not cross over: `/api/todos` refuses the one and `/api/mcp` the other.
+- The first `next build` against an unseeded database logs `UNIQUE constraint failed: oauth_resource.identifier` from workers racing `mcp()`'s startup seed, which is harmless.
 
 ## Agent — `lib/tutor.ts`, `components/chat.tsx`, `app/api/copilotkit/[...all]/`
 
@@ -105,10 +119,11 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - `vitest.config.mts` resolves `@/*` through Vite's native `resolve.tsconfigPaths`, so no `vite-tsconfig-paths` plugin is needed.
 - Playwright runs Chromium only against its own `next dev` on port 3100 (override with `E2E_PORT`).
 - `next dev` refuses to start twice against one dist dir, so `next.config.ts` reads `NEXT_DIST_DIR`, which the Playwright server sets to `.next-e2e` and the integration setup to `.next-cli-e2e`; each dir also needs a `tsconfig.json` include entry, which `next dev` adds itself.
-- The seven `.test.ts` files in `tests/unit` select the node environment, while `todo-tool-calls.test.tsx` uses jsdom; the db, auth, tutor and todos-api tests point at a temp file, so they never touch `data/app.db`.
+- The eight `.test.ts` files in `tests/unit` select the node environment, while `todo-tool-calls.test.tsx` uses jsdom; the db, auth, tutor, todos-api and mcp-route tests point at a temp file, so they never touch `data/app.db`.
 - On Windows libSQL keeps a closed database file locked for seconds, so those tests delete their temp dir with the retrying `removeTempDir` from `tests/unit/temp-dir.ts` and `vitest.config.mts` raises `hookTimeout` to cover the wait.
 - The auth test builds its own instance from `authOptions` with the `testUtils()` plugin and an explicit `secret`/`baseURL`, because Vitest does not load `.env`.
 - `tests/unit/todos-api.test.ts` calls the real route handlers with `DATABASE_URL` and `BETTER_AUTH_SECRET` stubbed and only `server-only` mocked, minting sessions on a second `testUtils()` instance with the same secret and taking the signed token out of `login().headers`.
+- `tests/unit/mcp-route.test.ts` calls the real `/api/mcp` and well-known handlers the same way and follows the 401 challenge through both discovery documents, but mints no access token, so no automated test covers an authorized MCP call.
 - `tests/integration/server.ts` is the integration project's `globalSetup`, which Vitest runs only when an integration file is selected: it builds the CLI, starts one `next dev` on a spare port over a migrated temp database with its own `BETTER_AUTH_*`, and hands the URL, database, secret and CLI path to the files through `provide`/`inject`.
 - The integration files run in parallel against that one server, so each signs in a user of its own through `harness()` in `tests/integration/harness.ts`, a `testUtils()` instance on the server's database and secret.
 - `cli.test.ts` runs `login` through `logout` with `AI_TUTOR_CONFIG_DIR` in a temp dir, approving the code with a `testUtils()` session cookie instead of a browser.
@@ -132,7 +147,7 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 
 ## Secrets — `.env`
 
-- Holds `DATABASE_URL` (SQLite, read by both `lib/db.ts` and drizzle-kit, which loads `.env` itself), `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` read by Better Auth itself, and `OPENROUTER_API_KEY`, which Mastra's model router reads directly.
+- Holds `DATABASE_URL` (SQLite, read by both `lib/db.ts` and drizzle-kit, which loads `.env` itself), `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` read by Better Auth itself (`BETTER_AUTH_URL` also by `mcpResource()`, which throws without it), and `OPENROUTER_API_KEY`, which Mastra's model router reads directly.
 - `.gitignore` covers `.env*` except `.env.example`; never commit the file or print its values.
 
 ## Tooling — `biome.json`, `.gitattributes`, `.gitignore`

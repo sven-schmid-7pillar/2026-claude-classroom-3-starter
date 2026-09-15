@@ -23,3 +23,23 @@ export function safeNextPath(next: string | string[] | undefined): string {
 /** `path`, carrying `next` along unless it is the default destination. */
 export const withNext = (path: string, next: string) =>
   next === "/" ? path : `${path}?${new URLSearchParams({ next })}`;
+
+/**
+ * The authorization request Better Auth signed onto a /login or /consent URL
+ * for an MCP client, as a `?query` to hand on unchanged, or "" when there is
+ * none. Better Auth verifies its `sig` wherever a form sends it back.
+ */
+export function oauthQuery(
+  params: Record<string, string | string[] | undefined>,
+): string {
+  if (typeof params.sig !== "string") {
+    return "";
+  }
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    for (const item of [value ?? []].flat()) {
+      query.append(key, item);
+    }
+  }
+  return `?${query}`;
+}

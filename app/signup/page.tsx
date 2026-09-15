@@ -8,11 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { FormError } from "@/components/ui/form-error";
 import { authClient } from "@/lib/auth-client";
-import { safeNextPath, withNext } from "@/lib/next-path";
+import { oauthQuery, safeNextPath, withNext } from "@/lib/next-path";
 
 export default function SignUpPage({ searchParams }: PageProps<"/signup">) {
-  // Carried over from /login, so a terminal login survives creating an account.
-  const next = safeNextPath(use(searchParams).next);
+  const params = use(searchParams);
+  // Carried over from /login, so a terminal login or an MCP client's
+  // authorization survives creating an account.
+  const next = safeNextPath(params.next);
+  const oauth = oauthQuery(params);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -23,7 +26,7 @@ export default function SignUpPage({ searchParams }: PageProps<"/signup">) {
     setError(null);
     setPending(true);
 
-    const { error: signUpError } = await authClient.signUp.email({
+    const { data, error: signUpError } = await authClient.signUp.email({
       name: String(form.get("name")),
       email: String(form.get("email")),
       password: String(form.get("password")),
@@ -35,6 +38,10 @@ export default function SignUpPage({ searchParams }: PageProps<"/signup">) {
           "Could not create the account. Try a different email address.",
       );
       setPending(false);
+      return;
+    }
+    // As on /login: Better Auth resumed the authorization and is redirecting.
+    if (data && "redirect" in data && data.redirect) {
       return;
     }
 
@@ -50,7 +57,7 @@ export default function SignUpPage({ searchParams }: PageProps<"/signup">) {
         <>
           Already have an account?{" "}
           <Link
-            href={withNext("/login", next)}
+            href={oauth ? `/login${oauth}` : withNext("/login", next)}
             className="font-semibold text-accent hover:underline"
           >
             Log in
