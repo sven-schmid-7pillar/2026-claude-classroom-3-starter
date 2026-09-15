@@ -1,13 +1,14 @@
 import { z } from "zod";
 
 /**
- * The wire contract of the /api/todos REST API, for the route handlers and for
- * any client (such as a CLI in this repo). Imports nothing but zod, so a client
- * can load it without pulling in the database or the auth instance.
+ * The wire contract of the /api/todos REST API, for the web app's route
+ * handlers and for ai-tutor-cli. Imports nothing but zod, so a client can load
+ * it without pulling in the database or the auth instance.
  *
- * Every call sends `Authorization: Bearer <token>`, where the token is the
- * signed session token Better Auth returns in the `set-auth-token` header on
- * sign-in. `GET` also accepts the app's session cookie; writes do not.
+ * Every call sends `Authorization: Bearer <token>`, where the token is a signed
+ * session token: the one Better Auth returns in the `set-auth-token` header on
+ * sign-in, or the one `ai-tutor login` receives from the device authorization
+ * grant. `GET` also accepts the app's session cookie; writes do not.
  */
 export const TODOS_PATH = "/api/todos";
 
@@ -62,3 +63,16 @@ export const errorResponseSchema = z.object({
     .optional(),
 });
 export type ErrorResponse = z.infer<typeof errorResponseSchema>;
+
+/**
+ * The `client_id` `ai-tutor login` sends through Better Auth's device
+ * authorization grant; the server's `validateClient` refuses any other.
+ */
+export const CLI_CLIENT_ID = "ai-tutor-cli";
+
+/**
+ * A device-flow user code as people compare it, `ABCDEFGH` as `ABCD-EFGH`.
+ * Better Auth strips the dash again wherever the code is typed back in.
+ */
+export const formatUserCode = (userCode: string) =>
+  userCode.match(/.{1,4}/g)?.join("-") ?? userCode;

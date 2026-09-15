@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, use, useState } from "react";
 import { AuthCard } from "@/components/ui/auth-card";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { FormError } from "@/components/ui/form-error";
 import { authClient } from "@/lib/auth-client";
+import { safeNextPath, withNext } from "@/lib/next-path";
 
-export default function LoginPage() {
+export default function LoginPage({ searchParams }: PageProps<"/login">) {
+  // Set by /device, so a terminal login survives signing in first.
+  const next = safeNextPath(use(searchParams).next);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -34,7 +37,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.replace("/");
+    router.replace(next);
     router.refresh();
   }
 
@@ -46,7 +49,7 @@ export default function LoginPage() {
         <>
           Need an account?{" "}
           <Link
-            href="/signup"
+            href={withNext("/signup", next)}
             className="font-semibold text-accent hover:underline"
           >
             Sign up

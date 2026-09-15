@@ -1,11 +1,11 @@
 import { RequestContext } from "@mastra/core/request-context";
 import { createTool } from "@mastra/core/tools";
+import { todoSchema } from "ai-tutor-todo-api";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/libsql/node";
 import { z } from "zod";
 import type * as schema from "@/lib/schema";
 import { todos } from "@/lib/schema";
-import { todoSchema } from "@/lib/todo-api";
 
 /**
  * The one key the tools read out of Mastra's `RequestContext`, and the only

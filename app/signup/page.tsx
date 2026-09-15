@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, use, useState } from "react";
 import { AuthCard } from "@/components/ui/auth-card";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { FormError } from "@/components/ui/form-error";
 import { authClient } from "@/lib/auth-client";
+import { safeNextPath, withNext } from "@/lib/next-path";
 
-export default function SignUpPage() {
+export default function SignUpPage({ searchParams }: PageProps<"/signup">) {
+  // Carried over from /login, so a terminal login survives creating an account.
+  const next = safeNextPath(use(searchParams).next);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -35,7 +38,7 @@ export default function SignUpPage() {
       return;
     }
 
-    router.replace("/");
+    router.replace(next);
     router.refresh();
   }
 
@@ -47,7 +50,7 @@ export default function SignUpPage() {
         <>
           Already have an account?{" "}
           <Link
-            href="/login"
+            href={withNext("/login", next)}
             className="font-semibold text-accent hover:underline"
           >
             Log in

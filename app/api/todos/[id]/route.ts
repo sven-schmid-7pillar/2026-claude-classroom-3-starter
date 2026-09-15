@@ -1,6 +1,6 @@
+import { type TodoResponse, updateTodoRequestSchema } from "ai-tutor-todo-api";
 import { apiError, getApiSession, parseJsonBody } from "@/lib/api-session";
 import { db } from "@/lib/db";
-import { type TodoResponse, updateTodoRequestSchema } from "@/lib/todo-api";
 import { setTodoDoneFor } from "@/lib/todo-tools";
 
 /** Marks one item done (or reopens it); Bearer token only. */

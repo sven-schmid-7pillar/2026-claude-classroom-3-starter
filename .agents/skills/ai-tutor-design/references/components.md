@@ -27,8 +27,8 @@ Graphite, square, weight 600 — the brand's most distinctive control, and the
 one most likely to get "fixed" back into a blue rounded button.
 
 ```
-bg-button px-4 py-2 text-sm font-semibold text-white transition-colors
-hover:bg-button-hover
+border px-4 py-2 text-sm font-semibold transition-colors
+border-transparent bg-button text-white hover:bg-button-hover
 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent
 disabled:cursor-not-allowed disabled:opacity-60
 ```
@@ -36,9 +36,11 @@ disabled:cursor-not-allowed disabled:opacity-60
 `button` is a role rather than a fixed `grey-700` because the dark theme has to
 lift the fill to `#5a5a5a` — `#464646` disappears into the `#323232` surface.
 
-A secondary button is the same geometry with
-`border border-edge bg-transparent text-ink hover:bg-raised`. There is no third
-button style; if you think you need one, you need a link.
+A secondary button is `<Button variant="secondary">`: the same geometry with
+`border-edge bg-transparent text-ink hover:bg-raised` in place of the fill. Use
+it only for the lesser of two choices shown together, such as Deny beside
+Approve. The primary keeps a transparent 1px border so the pair lines up. There
+is no third button style; if you think you need one, you need a link.
 
 ## Link
 

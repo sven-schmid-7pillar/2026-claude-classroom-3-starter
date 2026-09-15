@@ -2,6 +2,11 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  errorResponseSchema,
+  listTodosResponseSchema,
+  todoResponseSchema,
+} from "ai-tutor-todo-api";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import { migrate } from "drizzle-orm/libsql/migrator";
@@ -10,11 +15,6 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { authOptions } from "@/lib/auth-config";
 import * as schema from "@/lib/schema";
 import { todos } from "@/lib/schema";
-import {
-  errorResponseSchema,
-  listTodosResponseSchema,
-  todoResponseSchema,
-} from "@/lib/todo-api";
 import { removeTempDir } from "@/tests/unit/temp-dir";
 
 // The routes run for real — lib/auth.ts with its bearer plugin, lib/db.ts, the

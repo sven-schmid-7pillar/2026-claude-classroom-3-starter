@@ -9,7 +9,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    include: ["tests/unit/**/*.test.{ts,tsx}"],
+    include: [
+      "tests/unit/**/*.test.{ts,tsx}",
+      "tests/integration/**/*.test.ts",
+    ],
     // tests/unit/temp-dir.ts retries for up to ~21s while Windows releases a
     // closed libSQL file; the default 10s would cut that teardown short.
     hookTimeout: 30_000,
