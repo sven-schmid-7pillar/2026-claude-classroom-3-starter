@@ -51,5 +51,9 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
+  },
+  "allowScripts": {
+    "@scarf/scarf@1.4.0": true,
+    "esbuild@0.25.12": true
   }
 }

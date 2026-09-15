@@ -1,8 +1,9 @@
 // @vitest-environment node
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { removeTempDir } from "@/tests/unit/temp-dir";
 
 // The `server-only` package resolves to its throwing build outside Next.js;
 // nothing here needs what it guards.
@@ -23,7 +24,17 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.unstubAllEnvs();
-  await rm(dir, { recursive: true, force: true });
+  // lib/tutor and lib/db cache their connections on globalThis; close both, or
+  // Windows keeps the file locked and the directory cannot be removed.
+  const cached = globalThis as {
+    tutorStorage?: { close(): Promise<void> };
+    db?: { $client: { close(): void } };
+  };
+  await cached.tutorStorage?.close();
+  cached.db?.$client.close();
+  delete cached.tutorStorage;
+  delete cached.db;
+  await removeTempDir(dir);
 });
 
 test("a dev hot reload rebuilds the agent but keeps the connection", async () => {

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RequestContext } from "@mastra/core/request-context";
@@ -7,10 +7,10 @@ import type { ValidationError } from "@mastra/core/tools";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import { drizzle } from "drizzle-orm/libsql/node";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-
 import * as schema from "@/lib/schema";
 import { todos, user } from "@/lib/schema";
 import { createTodoTools, tutorRequestContext } from "@/lib/todo-tools";
+import { removeTempDir } from "@/tests/unit/temp-dir";
 
 // The executors take their db, so this runs the real statements against a
 // throwaway file instead of data/app.db.
@@ -36,7 +36,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   db.$client.close();
-  await rm(dir, { recursive: true, force: true });
+  await removeTempDir(dir);
 });
 
 beforeEach(async () => {
